@@ -22,6 +22,7 @@ jobs:
     - name: Build d8
       shell: powershell
       run: |
+        $ErrorActionPreference = "Stop"
         $env:DEPOT_TOOLS_WIN_TOOLCHAIN = 0
 
         # Detect available Windows SDK (runner has 10.0.26100.x, NOT 10.0.28000.x)
@@ -32,14 +33,24 @@ jobs:
           Select-Object -First 1).Name
         Write-Host "Detected Windows SDK: $sdkVer"
 
-        cd C:\src\v8
-        $outDir = "out\x64.release"
+        $outDir = "C:\src\v8\out\x64.release"
+        New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 
-        # Use gn directly with win_sdk_version override
-        # This passes the SDK version to vcvarsall.bat, bypassing the missing 10.0.28000
-        $gnArgs = "is_debug=false target_cpu=`"x64`" win_sdk_version=`"$sdkVer`""
-        Write-Host "GN args: $gnArgs"
-        gn.bat gen $outDir "--args=$gnArgs"
+        # Write args.gn directly — avoids PowerShell->CMD quoting issues
+        @"
+is_debug = false
+target_cpu = "x64"
+win_sdk_version = "$sdkVer"
+"@ | Set-Content -Path "$outDir\args.gn" -Encoding ascii
+
+        Write-Host "=== args.gn ==="
+        Get-Content "$outDir\args.gn"
+
+        cd C:\src\v8
+
+        # gn gen (reads args.gn from outDir)
+        gn.bat gen $outDir
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
         # Build d8
         autoninja.bat -C $outDir d8
